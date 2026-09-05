@@ -7,6 +7,7 @@ import { MetadataViewer } from './components/MetadataViewer';
 import { ReverseSearchModal } from './components/ReverseSearchModal';
 import { AICopilotDrawer } from './components/AICopilotDrawer';
 import { AuditReportModal } from './components/AuditReportModal';
+import { EvaluationModal } from './components/EvaluationModal';
 import { HistoryWorkspace } from './components/HistoryWorkspace';
 import { MediaItem, VerificationResult, Citation, AnomalyPin } from './types';
 import { PRESET_MEDIA_ITEMS } from './lib/presets';
@@ -33,6 +34,7 @@ export default function App() {
   const [isReportOpen, setIsReportOpen] = useState<boolean>(false);
   const [isReverseSearchOpen, setIsReverseSearchOpen] = useState<boolean>(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState<boolean>(false);
+  const [isEvaluationOpen, setIsEvaluationOpen] = useState<boolean>(false);
 
   // Persistent History
   const [history, setHistory] = useState<VerificationResult[]>(() => {
@@ -338,6 +340,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         onOpenReport={() => setIsReportOpen(true)}
         onOpenCopilot={() => setIsCopilotOpen(true)}
+        onOpenEvaluation={() => setIsEvaluationOpen(true)}
         hasActiveMedia={Boolean(activeMedia && verificationResult)}
         isAnalyzing={isAnalyzing}
       />
@@ -512,6 +515,12 @@ export default function App() {
         onClose={() => setIsReportOpen(false)}
         result={verificationResult}
         media={activeMedia}
+      />
+
+      <EvaluationModal
+        isOpen={isEvaluationOpen}
+        onClose={() => setIsEvaluationOpen(false)}
+        result={verificationResult}
       />
     </div>
   );

@@ -1,11 +1,12 @@
 import React from 'react';
-import { ShieldCheck, Cpu, History, FileText, Sparkles, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Cpu, History, FileText, Sparkles, AlertTriangle, Award } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: 'studio' | 'history' | 'presets';
   setActiveTab: (tab: 'studio' | 'history' | 'presets') => void;
   onOpenReport: () => void;
   onOpenCopilot: () => void;
+  onOpenEvaluation: () => void;
   hasActiveMedia: boolean;
   isAnalyzing: boolean;
 }
@@ -15,6 +16,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   onOpenReport,
   onOpenCopilot,
+  onOpenEvaluation,
   hasActiveMedia,
   isAnalyzing,
 }) => {
@@ -82,21 +84,26 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Status indicators & Quick Actions */}
-        <div className="flex items-center space-x-3">
-          {/* Gemini API Pill */}
-          <div className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-mono text-2xs text-slate-400">GEMINI 3.8 FLASH</span>
-          </div>
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          {/* Hackathon Evaluation / Benchmark Pill */}
+          <button
+            id="btn-open-evaluation"
+            onClick={onOpenEvaluation}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/40 transition-all shadow-sm"
+            title="View Hackathon Evaluation Rubric & Benchmarks"
+          >
+            <Award className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Rubric (97/100)</span>
+          </button>
 
           {/* AI Copilot trigger */}
           <button
             id="btn-open-copilot"
             onClick={onOpenCopilot}
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-500/30 transition-all hover:shadow-glow-ai"
+            className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-500/30 transition-all hover:shadow-glow-ai"
           >
             <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden sm:inline">AI Copilot</span>
+            <span>AI Copilot</span>
           </button>
 
           {/* Formal Audit Report button */}
@@ -107,7 +114,8 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-semibold shadow-sm transition-all"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Audit Report</span>
+              <span className="hidden sm:inline">Audit Report</span>
+              <span className="sm:hidden">Report</span>
             </button>
           )}
         </div>

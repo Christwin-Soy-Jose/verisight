@@ -1,12 +1,7 @@
-import express from 'express';
-import path from 'path';
-import { createServer as createViteServer } from 'vite';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI } from '@google/genai';
 
-const PORT = 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-
-// Models in order of priority with high-throughput models for rate-limit protection
 const FORENSIC_MODELS = [
   'gemini-flash-latest',
   'gemini-3.1-flash-lite',
@@ -15,7 +10,6 @@ const FORENSIC_MODELS = [
   'gemini-3.1-pro-preview',
 ];
 
-// Lazy Gemini client
 let aiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI {
   if (!aiClient) {
@@ -31,7 +25,6 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
-// Helper to execute generation with automatic model fallback and rate-limit handling
 async function generateForensicsWithFallback(ai: GoogleGenAI, config: any) {
   let lastError: any = null;
   for (const model of FORENSIC_MODELS) {
@@ -44,7 +37,7 @@ async function generateForensicsWithFallback(ai: GoogleGenAI, config: any) {
     } catch (err: any) {
       const isRateLimit = err?.message?.includes('429') || err?.status === 'RESOURCE_EXHAUSTED' || err?.code === 429;
       console.warn(
-        `[Forensics] Model ${model} generation failure ${isRateLimit ? '(429 Quota Exceeded, cascading to next model)' : ''}:`,
+        `[Forensics Vercel] Model ${model} generation failure ${isRateLimit ? '(429 Quota Exceeded, cascading to next model)' : ''}:`,
         err?.message || err
       );
       lastError = err;
@@ -53,32 +46,78 @@ async function generateForensicsWithFallback(ai: GoogleGenAI, config: any) {
   throw lastError || new Error('All forensic AI models are currently unavailable.');
 }
 
-async function startServer() {
-  const app = express();
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
-  // Increase payload limit for media base64 transfers
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-  // Healthcheck endpoint
-  app.get('/api/health', (req, res) => {
-    res.json({
+  const url = req.url || '';
+
+  // Healthcheck endpoint: /api/health
+  if (url.includes('/api/health') || url === '/api/health') {
+    return res.status(200).json({
       status: 'ok',
-      service: 'VeriSight AI Forensics Engine',
+      service: 'VeriSight AI Forensics Engine (Vercel Serverless)',
       geminiConfigured: Boolean(GEMINI_API_KEY),
       timestamp: new Date().toISOString(),
     });
-  });
+  }
 
-  // Verify Media with Multimodal AI & Fallback
-  app.post('/api/verify', async (req, res) => {
+  // Assistant Copilot endpoint: /api/assistant
+  if (url.includes('/api/assistant')) {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+    try {
+      const { messages = [], context = {} } = req.body || {};
+      const ai = getGeminiClient();
+
+      const systemInstruction = `You are VeriSight Forensics Copilot, an elite digital media verification assistant.
+You assist journalists, law enforcement, cybersecurity analysts, and citizens in understanding Error Level Analysis (ELA), noise variance heatmaps, spectral audio signatures, C2PA content credentials, and generative AI artifacts.
+Explain complex forensic phenomena clearly, accurately, and objectively.
+Current active media context:
+${JSON.stringify(context, null, 2)}`;
+
+      const lastUserMessage = messages[messages.length - 1]?.content || 'Explain the forensic findings.';
+      const { response } = await generateForensicsWithFallback(ai, {
+        contents: [
+          {
+            text: `System Context: ${systemInstruction}\n\nUser Question: ${lastUserMessage}`,
+          },
+        ],
+      });
+
+      return res.status(200).json({ reply: response.text || 'Forensic analysis recorded.' });
+    } catch (error: any) {
+      console.warn('Vercel Forensics assistant fallback:', error?.message || error);
+      return res.status(200).json({
+        reply: 'Based on active telemetry: The visual and frequency patterns have been catalogued. ELA variance and noise signatures indicate structural consistency or generative diffusion synthesis.',
+      });
+    }
+  }
+
+  // Verification endpoint: /api/verify
+  if (url.includes('/api/verify')) {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
     const {
       mediaType = 'image',
       imageBase64,
       mimeType = 'image/jpeg',
       fileName = 'media_sample',
       clientForensics,
-    } = req.body;
+    } = req.body || {};
 
     try {
       const ai = getGeminiClient();
@@ -97,7 +136,7 @@ Respond ONLY with valid JSON in this exact structure:
 {
   "verdict": "AI_GENERATED" | "MANIPULATED_OR_SPLICED" | "SUSPICIOUS_ANOMALIES" | "HIGH_CONFIDENCE_AUTHENTIC",
   "verdictTitle": "Short bold title e.g. High Probability AI-Generated Synthetic Media",
-  "confidenceScore": number between 15 and 99 reflecting true forensic certainty (do NOT default to a fixed number like 94; dynamically calibrate between 50-98 based on evidence),
+  "confidenceScore": number between 15 and 99 reflecting true forensic certainty (dynamically calibrate between 50-98 based on evidence),
   "summary": "Concise 2-3 sentence forensic finding explanation in plain professional English.",
   "riskLevel": "CRITICAL" | "HIGH" | "ELEVATED" | "LOW",
   "anomalyCount": number of specific anomalies detected,
@@ -122,14 +161,11 @@ Respond ONLY with valid JSON in this exact structure:
 }`;
 
       const contents: any[] = [];
-
       if (imageBase64 && typeof imageBase64 === 'string') {
-        // Strip data URL prefix if present
         const rawBase64 = imageBase64.includes('base64,')
           ? imageBase64.split('base64,')[1]
           : imageBase64;
 
-        // Ensure it looks like valid base64 and not a blob URL or empty
         if (rawBase64 && !rawBase64.startsWith('blob:') && rawBase64.length > 50) {
           contents.push({
             inlineData: {
@@ -156,27 +192,22 @@ Respond ONLY with valid JSON in this exact structure:
       const rawText = response.text || '{}';
       try {
         const parsed = JSON.parse(rawText);
-        // Ensure confidenceScore is a valid number and not NaN
         if (typeof parsed.confidenceScore !== 'number' || isNaN(parsed.confidenceScore)) {
           parsed.confidenceScore = 87;
         }
-        return res.json({ success: true, result: parsed });
+        return res.status(200).json({ success: true, result: parsed });
       } catch (parseError) {
-        console.error('Failed to parse Gemini JSON output:', rawText);
-        // Extract JSON from markdown codeblock if needed
         const jsonMatch = rawText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          try {
-            const extracted = JSON.parse(jsonMatch[0]);
-            return res.json({ success: true, result: extracted });
-          } catch (e) {}
+          const extracted = JSON.parse(jsonMatch[0]);
+          return res.status(200).json({ success: true, result: extracted });
         }
       }
-    } catch (error: any) {
-      console.warn('Gemini verification fallback activated:', error?.message || error);
+    } catch (err: any) {
+      console.warn('Vercel Gemini verification fallback activated:', err?.message || err);
     }
 
-    // Dynamic Heuristic Forensic Engine (Calibrated fallback if external API is constrained)
+    // Dynamic Heuristic Fallback
     const lowerName = (fileName || '').toLowerCase();
     const isAiSample = lowerName.includes('midjourney') || lowerName.includes('synthetic') || lowerName.includes('ai_') || lowerName.includes('flux');
     const isManipSample = lowerName.includes('manipulated') || lowerName.includes('altered') || lowerName.includes('spliced') || lowerName.includes('clearance');
@@ -207,7 +238,7 @@ Respond ONLY with valid JSON in this exact structure:
       summary = 'Error Level Analysis reveals significant localized recompression variance surrounding structural text and badge regions, indicative of digital splicing.';
     }
 
-    res.json({
+    return res.status(200).json({
       success: true,
       result: {
         verdict,
@@ -250,76 +281,10 @@ Respond ONLY with valid JSON in this exact structure:
               : 'Header block contains valid optical camera parameters.',
           },
         ],
-        technicalDeepDive: {
-          photometricAnalysis: verdict === 'AI_GENERATED'
-            ? 'Directional vectors across facial planes show inconsistent light source origins.'
-            : 'Unified illumination vectors consistent with single primary strobe/sunlight.',
-          anatomicalCoherence: verdict === 'AI_GENERATED'
-            ? 'Minor spatial blur detected along fine epidermal transitions.'
-            : 'Coherent organic anatomical geometries observed throughout frame.',
-          sensorNoisePattern: `High-pass spectral noise variance measured at ${noiseStd}. Natural camera sensors yield 5.0-15.0.`,
-          compressionSignatures: `Error Level Analysis disparity calculated at ${elaVariance}.`,
-        },
-        reverseSearchKeywords: [fileName, 'forensics verification', verdict.toLowerCase()],
-        investigatorActionPlan: [
-          'Verify cryptographic hash against global media provenance ledgers.',
-          'Request native RAW DNG/CR3 files from the source camera when available.',
-        ],
       },
-    });
-  });
-
-  // AI Forensics Copilot Chat Endpoint with Model Fallback
-  app.post('/api/assistant', async (req, res) => {
-    try {
-      const { messages = [], context = {} } = req.body;
-      const ai = getGeminiClient();
-
-      const systemInstruction = `You are VeriSight Forensics Copilot, an elite digital media verification assistant.
-You assist journalists, law enforcement, cybersecurity analysts, and citizens in understanding Error Level Analysis (ELA), noise variance heatmaps, spectral audio signatures, C2PA content credentials, and generative AI artifacts.
-You explain complex forensic phenomena clearly, accurately, and objectively.
-Current active media context:
-${JSON.stringify(context, null, 2)}
-
-Provide structured, crisp, informative explanations. If the user asks about a specific feature or anomaly, explain the optical/mathematical principle behind it and what investigative steps to take next.`;
-
-      const lastUserMessage = messages[messages.length - 1]?.content || 'Explain the forensic findings.';
-      
-      const { response } = await generateForensicsWithFallback(ai, {
-        contents: [
-          {
-            text: `System Context: ${systemInstruction}\n\nUser Question: ${lastUserMessage}`,
-          },
-        ],
-      });
-
-      res.json({ reply: response.text || 'Forensic analysis recorded.' });
-    } catch (error: any) {
-      console.warn('Forensics assistant error:', error?.message || error);
-      res.json({
-        reply: 'Based on the active telemetry: The visual and frequency patterns have been catalogued. ELA variance and noise signatures serve as key indicators of digital manipulation or generative diffusion synthesis.',
-      });
-    }
-  });
-
-  // Vite middleware in dev; static dist in production
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`VeriSight AI server listening on http://0.0.0.0:${PORT}`);
-  });
+  // Fallback for unknown api route
+  return res.status(404).json({ error: 'Endpoint not found' });
 }
-
-startServer();
